@@ -1,0 +1,24 @@
+VAGRANTFILE_API_VERSION = "2"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+	# General Vagrant VM configuration.
+	config.vm.box = "geerlingguy/ubuntu2004"
+	config.ssh.insert_key = false
+	config.ssh.private_key_path = "~/.vagrant.d/insecure_private_key"
+	config.vm.synced_folder ".", "/vagrant", disabled: true
+	config.vm.provider :virtualbox do |v|
+		v.memory = 512
+		v.linked_clone = true
+	end
+
+	# Application server 1.
+	config.vm.define "solr" do |app|
+		app.vm.hostname = "solr.test"
+		app.vm.network :private_network, ip: "192.168.56.9"
+	end
+
+	# Provisioning configuration for Ansible.
+	config.vm.provision "ansible" do |ansible|
+		ansible.playbook = "playbook.yml"
+	end
+end

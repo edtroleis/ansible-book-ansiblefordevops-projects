@@ -1,0 +1,156 @@
+---
+- name: Ubuntu LAMP server with Drupal
+  hosts: all
+  become: true
+
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Update apt cache if needed
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  handlers:
+    - name: restart apache
+      ansible.builtin.service:
+        name: apache2
+        state: restarted
+
+  tasks:
+    - name: Get software for apt repository management
+      ansible.builtin.apt:
+        name:
+          - python3-apt
+          - python3-pycurl
+        state: present
+
+    - name: Add ondrej repository for later versions of PHP
+      ansible.builtin.apt_repository:
+        repo: "ppa:ondrej/php"
+        update_cache: yes
+
+    - name: Install Apache, MySQL, PHP, and other dependencies
+      ansible.builtin.apt:
+        name: "{{ packages }}"
+        state: present
+
+    - name: Disabel firewall
+      ansible.builtin.service:
+        name: ufw
+        state: stopped
+
+    - name: Start Apache, MySQL and PHP
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      with_items:
+        - apache2
+        - mysql
+
+    - name: Enable Apache rewrite module (required for Drupal)
+      community.general.apache2_module:
+        name: rewrite
+        state: present
+      notify: restart apache
+
+    - name: Add Apache virtualhost for Drupal
+      template:
+        src: "templates/drupal.test.conf.j2"
+        dest: "/etc/apache2/sites-available/{{ domain }}.test.conf"
+        owner: root
+        group: root
+        mode: 0644
+      notify: restart apache
+
+    - name: Enable Drupal site
+      ansible.builtin.command: >
+        a2ensite {{ domain }}.test
+        creates=/etc/apache2/sites-enabled/{{ domain }}.test.conf
+
+    - name: Disable default site
+      ansible.builtin.command: >
+        a2dissite 000-default
+        removes=/etc/apache2/sites-enabled/000-default.conf
+      notify: restart apache
+
+    - name: Adjust OpCache memory setting.
+      ansible.builtin.lineinfile:
+        dest: "/etc/php/8.2/apache2/conf.d/10-opcache.ini"
+        regexp: "^opcache.memory_consumption"
+        line: "opcache.memory_consumption = 96"
+        state: present
+      notify: restart apache
+
+    - name: Create MySQL database for Drupal
+      community.mysql.mysql_db:
+        db: "{{ domain }}"
+        state: present
+
+    - name: Create MySQL user for Drupal
+      community.mysql.mysql_user:
+        name: "{{ domain }}"
+        password: "1234"
+        priv: "{{ domain }}.*:ALL"
+        host: localhost
+        state: present
+
+    - name: Download Composer installer
+      ansible.builtin.get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-installer.php
+        mode: 0755
+
+    - name: Run composer installer
+      ansible.builtin.command: >
+        php composer-installer.php
+        chdir=/tmp
+        creates=/usr/local/bin/composer
+
+    - name: Move Composer into globally-accessible location
+      command: >
+        mv /tmp/composer.phar /usr/local/bin/composer
+        creates=/usr/local/bin/composer
+
+    - name: Ensure Drupal directory exists
+      ansible.builtin.file:
+        path: "{{ drupal_core_path }}"
+        state: directory
+        owner: www-data
+        group: www-data
+
+    - name: Check if Drupal project already exists
+      ansible.builtin.stat:
+        path: "{{ drupal_core_path }}/composer.json"
+      register: drupal_composer_json
+
+    - name: Create Drupal project
+      community.general.composer:
+        command: create-project
+        arguments: drupal/recommended-project "{{ drupal_core_path }}"
+        working_dir: "{{ drupal_core_path }}"
+        no_dev: true
+      become_user: www-data
+      when: not drupal_composer_json.stat.exists
+
+    - name: Add drush to the Drupal site with Composer
+      community.general.composer:
+        command: require
+        arguments: drush/drush:11.*
+        working_dir: "{{ drupal_core_path }}"
+      become_user: www-data
+      when: not drupal_composer_json.stat.exists
+
+    - name: Install Drupal.
+      command: >
+        vendor/bin/drush si -y --site-name="{{ drupal_site_name }}"
+        --account-name=admin
+        --account-pass=admin
+        --db-url=mysql://{{ domain }}:1234@localhost/{{ domain }}
+        --root={{ drupal_core_path }}/web
+        chdir={{ drupal_core_path }}
+        creates={{ drupal_core_path }}/web/sites/default/settings.php
+      notify: restart apache
+      become_user: www-data

@@ -1,0 +1,101 @@
+---
+- name: Setup webapp environment
+  hosts: multi
+  become: yes
+  tasks:
+    - name: Ensure chrony (for time synchronization) is installed.
+      ansible.builtin.dnf:
+        name: chrony
+        state: present
+
+    - name: Ensure chrony is running.
+      ansible.builtin.service:
+        name: chronyd
+        state: started
+        enabled: yes
+
+    - name: Check time server
+      ansible.builtin.command: chronyc tracking
+      register: chronyc_result
+
+    - name: Show chronyc_result
+      ansible.builtin.debug:
+        var: chronyc_result
+
+- name: Setup web environment
+  hosts: app
+  become: yes
+  tasks:
+    - name: Install pip
+      ansible.builtin.dnf:
+        name: python3-pip
+        state: present
+
+    - name: Install Django
+      ansible.builtin.pip:
+        name: django<4
+
+    - name: Ensure group admin exists
+      ansible.builtin.group:
+        name: admin
+        state: present
+
+    - name: Ensure user johndoe exists
+      ansible.builtin.user:
+        name: johndoe
+        group: admin
+        create_home: yes
+        generate_ssh_key: yes
+        state: present
+
+- name: Setub db environment
+  hosts: db
+  become: yes
+  tasks:
+    - name: Install packages
+      ansible.builtin.dnf:
+        name:
+          - mariadb-server
+          - firewalld
+          - python3-PyMySQL
+        state: present
+
+    - name: Start mariadb
+      ansible.builtin.service:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Start firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Set firewall zone
+      ansible.posix.firewalld:
+        zone: database
+        state: present
+        permanent: yes
+
+    - name: Set firewall source
+      ansible.posix.firewalld:
+        source: 192.168.56.0/24
+        zone: database
+        state: enabled
+        permanent: yes
+
+    - name: set firewall port
+      ansible.posix.firewalld:
+        port: 3306/tcp
+        zone: database
+        state: enabled
+        permanent: yes
+
+    - name: Create db user
+      community.mysql.mysql_user:
+        name: django
+        host: "%"
+        password: 12345
+        priv: "*.*:ALL"
+        state: present

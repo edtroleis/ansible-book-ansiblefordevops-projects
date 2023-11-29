@@ -1,0 +1,31 @@
+packages:
+  - acl
+  - git
+  - curl
+  - unzip
+  - sendmail
+  - apache2
+  - php8.2-common
+  - php8.2-cli
+  - php8.2-dev
+  - php8.2-gd
+  - php8.2-curl
+  - php8.2-opcache
+  - php8.2-xml
+  - php8.2-mbstring
+  - php8.2-pdo
+  - php8.2-mysql
+  - php8.2-apcu
+  - libpcre3-dev
+  - libapache2-mod-php8.2
+  - python3-mysqldb
+  - mysql-server
+
+# The path where Drupal will be downloaded and installed.
+drupal_core_path: "/var/www/drupal"
+
+# The resulting domain will be [domain].test (with .test appended).
+domain: "drupal"
+
+# Your Drupal site name.
+drupal_site_name: "Drupal Test"
